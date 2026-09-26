@@ -5,6 +5,7 @@ import {
 } from "./fb.js";
 import { CATS, LEVELS, catName, lvlName, roundProblem, frq } from "./problems.js";
 import { $, esc, seg, showOnly, sfx, sound, ordinal } from "./ui.js";
+import { DURS, evKey, evLabel, watchAll, saveScore, deleteScore, boardTable, fmtDate } from "./board.js";
 
 const VIEWS = ["v-setup", "v-loading", "v-signin", "v-denied", "v-home", "v-lobby", "v-live", "v-round", "v-reveal", "v-final"];
 const store = {
@@ -73,9 +74,10 @@ function goHome() {
   selectTab("t-new");
 }
 function selectTab(id) {
-  ["t-new", "t-history"].forEach(t => { $("#" + t).hidden = t !== id; });
+  ["t-new", "t-history", "t-board"].forEach(t => { $("#" + t).hidden = t !== id; });
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
   if (id === "t-history") loadHistory();
+  if (id === "t-board") startBoard(); else stopBoard();
 }
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (b) selectTab(b.dataset.tab); });
 
@@ -119,6 +121,7 @@ $("#createBtn").addEventListener("click", async () => {
 /* ---------- running a room ---------- */
 function enterRoom(c) {
   leaveRoom();
+  stopBoard();
   code = c;
   unsub = onValue(r("rooms/" + c), s => {
     room = s.val();
@@ -304,6 +307,14 @@ async function finish() {
       const h = push(r("history"));
       historyId = h.key;
       await set(h, { code: c, endedAt: serverTimestamp(), settings: rm.settings, results });
+      // Sprint races also count on the leaderboard, next to practice scores.
+      const s = rm.settings;
+      if (s.mode === "sprint") {
+        await Promise.all(list.filter(p => p.key && p.name).map(p => saveScore({
+          name: p.name, key: p.key, event: evKey(s.cat, s.level, s.dur), cat: s.cat, level: s.level, dur: s.dur,
+          score: p.score || 0, misses: p.misses || 0, streak: 0, uid: p.id, source: "live"
+        }).catch(e => console.error(e))));
+      }
     }
     await update(r("rooms/" + c), { status: "ended", historyId });
     store.del("msl.host");
@@ -391,6 +402,57 @@ $("#csvBtn").addEventListener("click", () => {
   const blob = new Blob(["﻿" + rows.map(r => r.map(q).join(",")).join("\r\n")], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `math-sprint-results-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+/* ---------- leaderboard (practice + live sprints) ---------- */
+const HB = { cat: "mul", level: 2, dur: 60 };
+let allScores = [], unsubScores = null;
+const hbSync = [];
+$("#hbCat").innerHTML = CATS.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+$("#hbCat").addEventListener("change", e => { HB.cat = e.target.value; renderBoard(); });
+hbSync.push(seg($("#hbLvl"), LEVELS, () => HB.level, v => { HB.level = +v; renderBoard(); }));
+hbSync.push(seg($("#hbDur"), DURS, () => HB.dur, v => { HB.dur = +v; renderBoard(); }));
+function startBoard() {
+  if (unsubScores) return;
+  $("#hbTable").innerHTML = `<p class="sub">Loading…</p>`;
+  unsubScores = watchAll(rows => { allScores = rows; renderBoard(); });
+}
+function stopBoard() { if (unsubScores) { unsubScores(); unsubScores = null; } }
+function renderBoard() {
+  const ev = evKey(HB.cat, HB.level, HB.dur);
+  $("#hbCat").value = HB.cat;
+  $("#hbTitle").textContent = evLabel(HB.cat, HB.level, HB.dur);
+  const rows = allScores === null ? null : allScores.filter(x => x.event === ev);
+  $("#hbTable").innerHTML = boardTable(rows, { limit: 100, del: true, emptyText: "No scores in this event yet." });
+  const recent = (allScores || []).filter(x => x.source !== "live").sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const weekAgo = Date.now() - 7 * 86400000;
+  const week = recent.filter(x => (x.ts || 0) > weekAgo);
+  const kids = new Set(week.map(x => x.key));
+  $("#hbActivitySub").textContent = `Last 7 days: ${week.length} practice ${week.length === 1 ? "sprint" : "sprints"} by ${kids.size} ${kids.size === 1 ? "student" : "students"}`;
+  $("#hbRecent").innerHTML = recent.length ? `<table class="board"><tbody>${recent.slice(0, 15).map(x =>
+    `<tr><td class="nm">${esc(x.name)}</td><td>${esc(evLabel(x.cat, x.level, x.dur))}</td><td class="r num">${x.score}</td><td class="r">${fmtDate(x.ts)}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty">No practice yet. Students practice on the main page, Practice tab.</div>`;
+}
+$("#hbTable").addEventListener("click", async e => {
+  const b = e.target.closest("[data-del]"); if (!b) return;
+  if (!b.dataset.arm) { b.dataset.arm = "1"; b.textContent = "Tap again"; setTimeout(() => { if (b.isConnected) { delete b.dataset.arm; b.textContent = "Remove"; } }, 3000); return; }
+  b.disabled = true;
+  // Removes every run by this student in this event, so an older score doesn't take its place.
+  const row = allScores.find(x => x.id === b.dataset.del);
+  const ev = evKey(HB.cat, HB.level, HB.dur);
+  const ids = row ? allScores.filter(x => x.event === ev && x.key === row.key).map(x => x.id) : [b.dataset.del];
+  try { await Promise.all(ids.map(deleteScore)); } catch (err) { b.textContent = "Couldn't remove"; }
+});
+$("#scoresCsvBtn").addEventListener("click", () => {
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [["date", "source", "student", "event", "level", "seconds", "score", "misses"]];
+  [...(allScores || [])].sort((a, b) => (a.ts || 0) - (b.ts || 0)).forEach(x =>
+    rows.push([new Date(x.ts || 0).toISOString().slice(0, 16).replace("T", " "), x.source || "", x.name, catName(x.cat), lvlName(x.level), x.dur, x.score, x.misses]));
+  const blob = new Blob(["﻿" + rows.map(r => r.map(q).join(",")).join("\r\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `math-sprint-scores-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });

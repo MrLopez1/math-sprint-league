@@ -16,28 +16,91 @@
     <div class="who-tag" id="meTag"></div>
   </header>
 
+  <nav class="tabs" id="tabs" role="tablist" hidden>
+    <button type="button" role="tab" data-tab="s-join" aria-selected="false">Live game</button>
+    <button type="button" role="tab" data-tab="s-practice" aria-selected="false">Practice</button>
+    <button type="button" role="tab" data-tab="s-board" aria-selected="false">Leaderboard</button>
+  </nav>
+
   <section id="s-setup" hidden class="narrow">
     <div class="note bad">This site isn't connected to a database yet. Your teacher needs to paste the Firebase settings into <b>js/config.js</b>.</div>
   </section>
 
   <section id="s-loading" class="narrow"><p class="sub">Connecting…</p></section>
 
+  <!-- LIVE GAME: JOIN -->
   <section id="s-join" hidden class="narrow">
     <form class="panel stack" id="joinForm" novalidate>
-      <h1>Join a game</h1>
+      <div>
+        <h1>Join a live game</h1>
+        <p class="sub">Type the code on the big screen.</p>
+      </div>
       <div>
         <label class="label" for="code">Game code</label>
         <input class="text code-in" id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="000000">
       </div>
       <div>
         <label class="label" for="name">Your name</label>
-        <input class="text" id="name" maxlength="24" autocomplete="off" autocapitalize="words" placeholder="First name and last initial">
+        <input class="text" id="name" maxlength="24" autocomplete="off" autocapitalize="words" placeholder="First name and last initial" list="knownNames">
       </div>
       <div class="err" id="joinErr" role="alert"></div>
       <button class="go full" id="joinBtn" type="submit">Join</button>
     </form>
   </section>
 
+  <!-- PRACTICE SETUP -->
+  <section id="s-practice" hidden>
+    <div class="grid2">
+      <div class="panel stack">
+        <div>
+          <h1>Practice sprint</h1>
+          <p class="sub">Play anytime. Answer as many as you can before time runs out, then try to beat your record. Correct answers move on by themselves; Enter on a wrong answer counts as a miss.</p>
+        </div>
+        <div>
+          <label class="label" for="pname">Your name</label>
+          <input class="text" id="pname" maxlength="24" autocomplete="off" autocapitalize="words" placeholder="First name and last initial" list="knownNames" style="max-width:360px">
+          <div class="err" id="pnameErr"></div>
+        </div>
+        <div><span class="label">Event</span><div class="cats" id="pcats"></div></div>
+        <div class="row">
+          <div><span class="label">Level</span><div class="seg" id="plvl"></div></div>
+          <div><span class="label">Time</span><div class="seg" id="pdur"></div></div>
+        </div>
+        <div class="btns"><button class="go" id="pStart" type="button">Start sprint</button></div>
+      </div>
+      <aside class="panel">
+        <h3>Top of the board</h3>
+        <p class="sub" id="pMiniTitle"></p>
+        <p class="pbline" id="pMyBest"></p>
+        <div class="tbl" id="pMini" style="margin-top:8px"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- LEADERBOARD -->
+  <section id="s-board" hidden>
+    <div class="panel" style="margin-bottom:20px">
+      <div class="row">
+        <div><label class="label" for="bCat">Event</label><select class="text" id="bCat"></select></div>
+        <div><span class="label">Level</span><div class="seg" id="bLvl"></div></div>
+        <div><span class="label">Time</span><div class="seg" id="bDur"></div></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h2 id="bTitle"></h2>
+        <p class="sub">Each student's best run. Ties go to fewer misses, then the earlier run. <span class="tag">class</span> marks a score from a live game.</p>
+        <div class="tbl" id="bFull" style="margin-top:10px"></div>
+      </div>
+      <div class="panel">
+        <h2>Your records</h2>
+        <p class="sub" id="myRecSub">Type your name on the Practice tab to see your records.</p>
+        <div class="tbl" id="myRecs" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE GAME: LOBBY -->
   <section id="s-lobby" hidden class="narrow">
     <div class="panel msg">
       <span class="pill" id="lobbyEvent"></span>
@@ -48,6 +111,7 @@
     </div>
   </section>
 
+  <!-- PLAY (live and practice) -->
   <section id="s-play" hidden>
     <div class="narrow stack" id="playInner" style="gap:14px">
       <div class="hud">
@@ -63,19 +127,48 @@
         <div class="keypad" id="kp"></div>
         <div class="count" id="count" hidden></div>
       </div>
-      <div class="btns" id="skipRow"><button class="ghost" id="skipBtn" type="button">Skip problem</button></div>
+      <div class="btns" id="skipRow" style="justify-content:space-between">
+        <button class="ghost" id="skipBtn" type="button">Skip problem</button>
+        <button class="ghost" id="pQuit" type="button" hidden>Quit without saving</button>
+      </div>
     </div>
   </section>
 
+  <!-- PRACTICE RESULTS -->
+  <section id="s-presult" hidden class="narrow">
+    <div class="panel stack" style="gap:16px">
+      <div>
+        <span class="label" id="prEvent"></span>
+        <h2 id="prName"></h2>
+      </div>
+      <div class="big-score"><b id="prScore">0</b><span>correct answers</span></div>
+      <div class="statchips" id="prChips"></div>
+      <div class="news" id="prNews"></div>
+      <div id="prMissedWrap">
+        <span class="label">Review these</span>
+        <ul class="missed" id="prMissed"></ul>
+      </div>
+      <div class="sub" id="prSaved"></div>
+      <div class="btns">
+        <button class="go" id="prAgain" type="button">Play again</button>
+        <button class="ghost" id="prChange" type="button">Change event</button>
+        <button class="ghost" id="prBoard" type="button">Leaderboard</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE GAME: MESSAGES -->
   <section id="s-msg" hidden class="narrow">
     <div class="panel msg" id="msgBox">
       <span class="pill" id="msgPill" hidden></span>
       <div class="title" id="msgTitle"></div>
+      <div class="prob" id="msgProb" hidden style="font-size:clamp(28px,7vw,48px)"></div>
       <div class="big" id="msgBig" hidden></div>
       <div class="detail" id="msgDetail"></div>
-      <div class="prob" id="msgProb" hidden style="font-size:clamp(28px,7vw,48px)"></div>
     </div>
   </section>
+
+  <datalist id="knownNames"></datalist>
 </div>
 <script type="module" src="js/player.js"></script>
 </body>

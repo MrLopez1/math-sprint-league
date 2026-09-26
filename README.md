@@ -1,17 +1,27 @@
-# Math Sprint League (live version)
+# Math Sprint League
 
-Students join from their phones with a 6-digit code, with no account needed. The teacher runs the game from a laptop on the projector.
+Students use it two ways, with no account needed:
+- **Live game:** the teacher runs a game on the projector, and students join from their phones with a 6-digit code.
+- **Practice:** students play solo sprints anytime (at school or at home), climb the leaderboard and try to beat their own record.
 
 - **Student page:** `https://YOUR-USERNAME.github.io/math-sprint-league/`
 - **Teacher page:** `https://YOUR-USERNAME.github.io/math-sprint-league/host.html`
 
-## Formats
-- **Sprint race:** everyone gets the same problems in the same order for 30 s to 2 min. The projector shows a live race.
+## Practice and leaderboard (student page)
+The student page has three tabs: **Live game**, **Practice** and **Leaderboard**.
+- **Practice:** pick an event, a level and a time (30 s, 60 s, 90 s or 2 min), then answer as many problems as possible. The results screen shows the score, accuracy and best streak, whether it's a new record ("New record! Up from 19"), the student's place on the board, and the problems they missed with the right answers.
+- **Leaderboard:** each student's best score for every event, level and time. **Your records** lists the student's best in every event they've played. Scores from live sprint races count too and are marked **class**.
+- Students are grouped by the name they type, so ask them to always use the same one, e.g. first name and last initial. The name is remembered on each phone.
+
+On the teacher page, the **Leaderboard** tab shows the same boards and the latest practice activity (who practiced this week). You can **Remove** a wrong or joke entry (tap twice), and **download every sprint score as CSV**.
+
+## Live game formats
+- **Sprint race:** everyone gets the same problems in the same order for 30 s to 2 min. The projector shows a live race. The results also go on the leaderboard.
 - **Rounds:** one problem at a time. Faster correct answers earn more points (1000 down to 500). After each round the projector shows the answer, the fastest students and the standings.
 
 Events: addition, subtraction, multiplication, division, integers, order of operations, squares & roots, percentages, fractions, solve for x, and mixed. Each event has 3 levels: Warm-up, Contest and Olympiad.
 
-Every finished game is saved in **History** on the teacher page. It includes a per-student summary (games played, wins, top-3 finishes, average place, accuracy) and a **Download CSV** button for your gradebook.
+Every finished live game is saved in **Live game history** on the teacher page. It includes a per-student summary (games played, wins, top-3 finishes, average place, accuracy) and a **Download CSV** button for your gradebook.
 
 ---
 
@@ -32,7 +42,7 @@ Every finished game is saved in **History** on the teacher page. It includes a p
 ### 3. Firebase: database and rules
 1. **Build → Realtime Database → Create database**. Pick the United States location and start in **locked mode**.
 2. Open the **Rules** tab. Delete what's there and paste the whole content of `database.rules.json`.
-3. Replace `TEACHER_EMAIL@gmail.com` with the Google email you'll sign in with. It appears **4 times**, so use find and replace.
+3. Replace `TEACHER_EMAIL@gmail.com` with the Google email you'll sign in with. It appears **5 times**, so use find and replace.
    To let another teacher host too, change each check to allow both emails:
    `(auth.token.email == 'you@gmail.com' || auth.token.email == 'other@gmail.com')`
 4. Click **Publish**.
@@ -41,7 +51,7 @@ Every finished game is saved in **History** on the teacher page. It includes a p
 ### 4. Paste your settings into `js/config.js`
 Replace the `PASTE_…` values with the ones from step 1.4. Make sure `databaseURL` is the link from step 3.5.
 
-These values are not secret. Every web app shows them to the browser. The rules from step 3 are what protect your data: only your Google account can create games or read the history, and each student can only change their own score.
+These values are not secret. Every web app shows them to the browser. The rules from step 3 are what protect your data: only your Google account can create games, read the history or delete scores. Students can only add their own new scores, can't change or delete anyone's, and a score has to be believable for its time limit.
 
 ### 5. GitHub Pages: publish the site
 1. On GitHub, click **New repository**. Name it `math-sprint-league`, make it **Public**, and create it.
@@ -76,6 +86,7 @@ The free Firebase plan (Spark) allows about 100 people connected at the same tim
 - `index.html`: student page
 - `host.html`: teacher page
 - `js/problems.js`: problem generators (add or adjust events here)
-- `js/player.js`, `js/host.js`: game logic
+- `js/player.js`, `js/host.js`: student and teacher pages
+- `js/board.js`: leaderboard and records
 - `js/fb.js`, `js/config.js`: Firebase connection
 - `database.rules.json`: security rules to paste into Firebase

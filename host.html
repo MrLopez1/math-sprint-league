@@ -48,7 +48,8 @@
   <section id="v-home" hidden>
     <nav class="tabs" id="tabs" role="tablist">
       <button type="button" role="tab" data-tab="t-new" aria-selected="true">New game</button>
-      <button type="button" role="tab" data-tab="t-history" aria-selected="false">History</button>
+      <button type="button" role="tab" data-tab="t-history" aria-selected="false">Live game history</button>
+      <button type="button" role="tab" data-tab="t-board" aria-selected="false">Leaderboard</button>
     </nav>
 
     <div id="t-new">
@@ -90,6 +91,29 @@
           <h2>Students</h2>
           <p class="sub">Across all saved games</p>
           <div class="tbl" id="studentsTbl" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="t-board" hidden>
+      <div class="panel" style="margin-bottom:20px">
+        <div class="row">
+          <div><label class="label" for="hbCat">Event</label><select class="text" id="hbCat"></select></div>
+          <div><span class="label">Level</span><div class="seg" id="hbLvl"></div></div>
+          <div><span class="label">Time</span><div class="seg" id="hbDur"></div></div>
+          <button class="ghost small" id="scoresCsvBtn" type="button">Download all sprint scores (CSV)</button>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="panel">
+          <h2 id="hbTitle"></h2>
+          <p class="sub">Each student's best run, from practice and from live sprint races (<span class="tag">class</span>). Tap Remove twice to delete a wrong or joke entry.</p>
+          <div class="tbl" id="hbTable" style="margin-top:10px"></div>
+        </div>
+        <div class="panel">
+          <h2>Latest practice</h2>
+          <p class="sub" id="hbActivitySub"></p>
+          <div class="tbl" id="hbRecent" style="margin-top:8px"></div>
         </div>
       </div>
     </div>

@@ -24,6 +24,15 @@
     "history": {
       ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
       ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'"
+    },
+    "scores": {
+      ".read": "auth != null",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
+      ".indexOn": ["event", "key"],
+      "$id": {
+        ".write": "auth != null && !data.exists() && newData.child('uid').val() == auth.uid",
+        ".validate": "newData.hasChildren(['name', 'key', 'event', 'cat', 'level', 'dur', 'score', 'misses', 'uid', 'ts']) && newData.child('name').isString() && newData.child('name').val().length >= 1 && newData.child('name').val().length <= 24 && newData.child('key').isString() && newData.child('key').val().length <= 24 && newData.child('event').isString() && newData.child('event').val().length <= 20 && newData.child('dur').isNumber() && newData.child('dur').val() >= 30 && newData.child('dur').val() <= 120 && newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('score').val() <= newData.child('dur').val() * 3 && newData.child('misses').isNumber() && newData.child('ts').isNumber() && newData.child('ts').val() <= now"
+      }
     }
   }
 }

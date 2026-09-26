@@ -5,7 +5,8 @@ import {
   getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, onValue, get, set, update, remove, push, serverTimestamp, increment, onDisconnect
+  getDatabase, ref, onValue, get, set, update, remove, push, serverTimestamp, increment, onDisconnect,
+  query, orderByChild, equalTo
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 export const configured = !!firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("PASTE");
@@ -26,5 +27,6 @@ export const now = () => Date.now() + offset;
 export const r = path => ref(db, path);
 export {
   onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut,
-  onValue, get, set, update, remove, push, serverTimestamp, increment, onDisconnect
+  onValue, get, set, update, remove, push, serverTimestamp, increment, onDisconnect,
+  query, orderByChild, equalTo
 };

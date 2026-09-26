@@ -1,32 +1,46 @@
-// Student page: join with a code, then play whatever the teacher's screen runs.
+// Student page: live games with a code, solo practice anytime, and the leaderboard.
 import {
   configured, auth, now, r, onAuthStateChanged, signInAnonymously,
   onValue, get, set, update, remove, serverTimestamp, increment, onDisconnect
 } from "./fb.js";
-import { problemStream, roundProblem, judge, frq, catName, lvlName } from "./problems.js";
-import { $, normKey, coarse, keypad, showOnly, sfx, rankOf, ordinal } from "./ui.js";
+import { CATS, LEVELS, problemStream, roundProblem, judge, frq, catName, lvlName, makeRng } from "./problems.js";
+import { $, esc, normKey, coarse, keypad, seg, showOnly, sfx, rankOf, ordinal } from "./ui.js";
+import { DURS, evKey, evLabel, watchEvent, watchStudent, saveScore, bestPerStudent, boardTable, accuracy, fmtDate } from "./board.js";
 
-const SCREENS = ["s-setup", "s-loading", "s-join", "s-lobby", "s-play", "s-msg"];
+const SCREENS = ["s-setup", "s-loading", "s-join", "s-practice", "s-board", "s-lobby", "s-play", "s-presult", "s-msg"];
+const TABS = ["s-join", "s-practice", "s-board"];
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} }
 };
 
-let uid = null, code = null, room = null, me = null;
-let unsubRoom = null, unsubConn = null, tickT = null, phaseKey = "";
-let sp = null;   // sprint state: {seed, next, prob, score}
-let rd = null;   // round state:  {seed, idx, prob, answered, points}
+let uid = null;
 const ansEl = $("#ans");
 if (coarse) ansEl.setAttribute("inputmode", "none");
 
+/* ======================================================================
+   Screens and tabs
+   ====================================================================== */
+function show(id) {
+  showOnly(SCREENS, id);
+  const isTab = TABS.includes(id);
+  $("#tabs").hidden = !isTab;
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
+  if (isTab) store.set("msl.tab", id);
+}
+$("#tabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.tab === "s-join") showJoin(); else show(b.dataset.tab);
+});
+
 if (!configured) {
-  showOnly(SCREENS, "s-setup");
+  show("s-setup"); $("#tabs").hidden = true;
 } else {
   onAuthStateChanged(auth, async user => {
     if (!user) {
       try { await signInAnonymously(auth); }
-      catch (e) { showOnly(SCREENS, "s-join"); $("#joinErr").textContent = "Could not connect. Check the internet and reload the page."; }
+      catch (e) { show("s-join"); $("#joinErr").textContent = "Could not connect. Check the internet and reload the page."; }
       return;
     }
     if (uid === user.uid) return;
@@ -38,21 +52,44 @@ if (!configured) {
 async function boot() {
   const urlCode = (new URLSearchParams(location.search).get("code") || "").replace(/\D/g, "").slice(0, 6);
   const saved = store.get("msl.code");
-  $("#name").value = store.get("msl.name") || "";
+  const nm = store.get("msl.name") || "";
+  $("#name").value = nm; $("#pname").value = nm;
   $("#code").value = urlCode;
+  initPractice();
   if (saved && (!urlCode || urlCode === saved)) {
     try {
       const mine = await get(r(`rooms/${saved}/players/${uid}`));
       const st = await get(r(`rooms/${saved}/status`));
       if (mine.exists() && st.exists() && st.val() !== "ended") { enter(saved); return; }
-    } catch (e) { /* fall through to join */ }
+    } catch (e) { /* fall through */ }
   }
-  showJoin();
+  const tab = urlCode ? "s-join" : (store.get("msl.tab") || "s-join");
+  if (tab === "s-join") showJoin(); else show(tab);
 }
+
+// One name for everything; remembered on this device.
+function setName(n) {
+  n = n.trim().replace(/\s+/g, " ").slice(0, 24);
+  store.set("msl.name", n);
+  if ($("#name").value.trim() !== n) $("#name").value = n;
+  if ($("#pname").value.trim() !== n) $("#pname").value = n;
+  watchMine(n);
+  return n;
+}
+$("#pname").addEventListener("change", e => setName(e.target.value));
+$("#name").addEventListener("change", e => setName(e.target.value));
+
+/* ======================================================================
+   LIVE GAME
+   ====================================================================== */
+let code = null, room = null, me = null;
+let unsubRoom = null, unsubConn = null, tickT = null, phaseKey = "";
+let sp = null;   // sprint race state: {seed, next, prob, score}
+let rd = null;   // round state:       {seed, idx, prob, answered, points}
 
 function showJoin(msg) {
   leaveRoom();
-  showOnly(SCREENS, "s-join");
+  show("s-join");
   $("#joinErr").textContent = msg || "";
   $("#meTag").textContent = "";
   ($("#code").value.length === 6 ? $("#name") : $("#code")).focus();
@@ -82,7 +119,7 @@ $("#joinForm").addEventListener("submit", async e => {
       name, key, score: prev.score || 0, correct: prev.correct || 0, misses: prev.misses || 0,
       online: true, joinedAt: serverTimestamp()
     });
-    store.set("msl.code", c); store.set("msl.name", name);
+    store.set("msl.code", c); setName(name);
     sfx.tick();
     enter(c);
   } catch (ex) {
@@ -129,7 +166,6 @@ $("#leaveBtn").addEventListener("click", async () => {
   showJoin("");
 });
 
-/* ---------- state machine ---------- */
 function phase() {
   const t = now(), s = room.settings || {};
   if (room.status === "lobby") return "lobby";
@@ -154,10 +190,7 @@ function phase() {
   return "lobby";
 }
 
-function eventLabel() {
-  const s = room.settings || {};
-  return `${catName(s.cat)} · ${lvlName(s.level)}`;
-}
+const roomEventLabel = () => { const s = room.settings || {}; return `${catName(s.cat)} · ${lvlName(s.level)}`; };
 
 function render() {
   if (!room || !me) return;
@@ -170,8 +203,8 @@ function render() {
 
   if (p === "lobby") {
     if (changed) {
-      showOnly(SCREENS, "s-lobby");
-      $("#lobbyEvent").textContent = `${eventLabel()} · ${s.mode === "sprint" ? "Sprint race" : "Rounds"}`;
+      show("s-lobby");
+      $("#lobbyEvent").textContent = `${roomEventLabel()} · ${s.mode === "sprint" ? "Sprint race" : "Rounds"}`;
       $("#lobbyName").textContent = me.name;
     }
     $("#lobbyCount").textContent = n === 1 ? "1 player has joined" : `${n} players have joined`;
@@ -191,7 +224,7 @@ function render() {
   switch (p) {
     case "count":
     case "rcount": {
-      if (changed) openPlay(p === "rcount");
+      if (changed) openPlay(p === "rcount" ? { round: true } : { score: sp.score });
       const start = p === "count" ? room.startAt : room.round.startAt;
       const c = $("#count"), secs = Math.max(1, Math.ceil((start - t) / 1000));
       c.hidden = false;
@@ -202,7 +235,7 @@ function render() {
     case "sprint":
     case "rplay": {
       if (changed) {
-        openPlay(p === "rplay");
+        openPlay(p === "rplay" ? { round: true } : { score: sp.score });
         $("#count").hidden = true;
         ansEl.disabled = false;
         if (p === "sprint") { if (!sp.prob) sp.prob = sp.next(); showProb(sp.prob); }
@@ -212,10 +245,7 @@ function render() {
       }
       const end = p === "sprint" ? room.endAt : room.round.endAt;
       const start = p === "sprint" ? room.startAt : room.round.startAt;
-      const left = Math.max(0, end - t);
-      $("#hudTime").textContent = Math.ceil(left / 1000);
-      $("#bar").style.transform = `scaleX(${left / (end - start)})`;
-      $("#playInner").classList.toggle("hurry", left < (p === "sprint" ? 10000 : 5000));
+      drawTimer(Math.max(0, end - t), end - start, p === "sprint" ? 10000 : 5000);
       break;
     }
     case "sprintdone": {
@@ -227,8 +257,7 @@ function render() {
     }
     case "answered": {
       const pts = rd.points || (room.answers?.[room.round.key]?.[uid]?.points) || 0;
-      showMsg({ changed, pill: "Correct!", pillCls: "good", title: "Nice work", big: "+" + pts,
-        detail: "Waiting for the others…" });
+      showMsg({ changed, pill: "Correct!", pillCls: "good", title: "Nice work", big: "+" + pts, detail: "Waiting for the others…" });
       break;
     }
     case "rtimeout":
@@ -247,34 +276,17 @@ function render() {
     }
     case "ended": {
       const { list, pos } = rankOf(players, uid);
+      const extra = s.mode === "sprint" ? " This score also counts on the leaderboard." : "";
       showMsg({ changed, pill: "Game over", title: pos === 1 ? "You won!" : "Final place", big: ordinal(pos),
-        detail: `${me.score || 0} ${s.mode === "sprint" ? "correct" : "points"} · ${list.length} players · ${eventLabel()}` });
+        detail: `${me.score || 0} ${s.mode === "sprint" ? "correct" : "points"} · ${list.length} players · ${roomEventLabel()}.${extra}` });
       if (changed) sfx.win();
       break;
     }
   }
 }
 
-function openPlay(isRound) {
-  showOnly(SCREENS, "s-play");
-  $("#playInner").classList.remove("hurry");
-  $("#fb").textContent = "";
-  $("#prob").innerHTML = "&nbsp;";
-  $("#fracHint").hidden = true;
-  ansEl.value = "";
-  $("#skipRow").hidden = isRound;
-  if (isRound) {
-    $("#hudLeft").textContent = `${room.round.index + 1}/${room.settings.rounds}`;
-    $("#hudLeftLabel").textContent = "Round";
-  } else {
-    $("#hudLeft").textContent = sp.score;
-    $("#hudLeftLabel").textContent = "Correct";
-  }
-  $("#bar").style.transform = "scaleX(1)";
-}
-
 function showMsg({ changed, pill, pillCls, title, big, detail, prob }) {
-  if (changed) showOnly(SCREENS, "s-msg");
+  if (changed) show("s-msg");
   const pe = $("#msgPill");
   pe.hidden = !pill; pe.textContent = pill || ""; pe.className = "pill" + (pillCls ? " " + pillCls : "");
   $("#msgTitle").textContent = title || "";
@@ -283,22 +295,54 @@ function showMsg({ changed, pill, pillCls, title, big, detail, prob }) {
   const pr = $("#msgProb"); pr.hidden = !prob; if (prob && pr.innerHTML !== prob) pr.innerHTML = prob;
 }
 
-/* ---------- answering ---------- */
-const mode = () => phaseKey.split("|")[0];
-function currentProb() {
-  const m = mode();
-  if (m === "sprint") return sp && sp.prob;
-  if (m === "rplay") return rd && !rd.answered ? rd.prob : null;
-  return null;
+/* ======================================================================
+   Shared play screen
+   ====================================================================== */
+function openPlay({ round = false, score = 0, practice = false } = {}) {
+  show("s-play");
+  $("#playInner").classList.remove("hurry");
+  $("#fb").textContent = "";
+  $("#prob").innerHTML = "&nbsp;";
+  $("#fracHint").hidden = true;
+  ansEl.value = "";
+  $("#skipRow").hidden = round;
+  $("#pQuit").hidden = !practice;
+  if (round) {
+    $("#hudLeft").textContent = `${room.round.index + 1}/${room.settings.rounds}`;
+    $("#hudLeftLabel").textContent = "Round";
+  } else {
+    $("#hudLeft").textContent = score;
+    $("#hudLeftLabel").textContent = "Correct";
+  }
+  $("#bar").style.transform = "scaleX(1)";
+}
+function drawTimer(left, total, hurryAt) {
+  $("#hudTime").textContent = Math.ceil(left / 1000);
+  $("#bar").style.transform = `scaleX(${Math.max(0, left / total)})`;
+  $("#playInner").classList.toggle("hurry", left < hurryAt);
 }
 function showProb(p) { $("#prob").innerHTML = p.html; ansEl.value = ""; $("#fracHint").hidden = !p.frac; }
 function focusAns() { if (!coarse) ansEl.focus(); }
 function flash(cls) { ansEl.classList.remove("ok", "bad"); void ansEl.offsetWidth; ansEl.classList.add(cls); }
+
+// What the answer box is answering right now.
+const liveMode = () => phaseKey.split("|")[0];
+function current() {
+  if (pr && pr.live) return { kind: "practice", prob: pr.prob };
+  const m = liveMode();
+  if (code && m === "sprint" && sp && sp.prob) return { kind: "sprint", prob: sp.prob };
+  if (code && m === "rplay" && rd && !rd.answered) return { kind: "round", prob: rd.prob };
+  return null;
+}
 const meRef = () => r(`rooms/${code}/players/${uid}`);
 
-function onCorrect() {
+function onCorrect(cur) {
   flash("ok"); sfx.ok(); $("#fb").textContent = "";
-  if (mode() === "sprint") {
+  if (cur.kind === "practice") {
+    pr.score++; pr.streak++; pr.best = Math.max(pr.best, pr.streak);
+    $("#hudLeft").textContent = pr.score;
+    nextPractice();
+  } else if (cur.kind === "sprint") {
     sp.score++;
     $("#hudLeft").textContent = sp.score;
     update(meRef(), { score: increment(1), correct: increment(1) }).catch(() => {});
@@ -313,36 +357,207 @@ function onCorrect() {
     render();
   }
 }
-function onWrong() {
+function onWrong(cur) {
   flash("bad"); sfx.bad();
-  $("#fb").textContent = mode() === "sprint" ? "Not quite. Fix it or skip." : "Not quite. Try again.";
+  $("#fb").textContent = cur.kind === "round" ? "Not quite. Try again." : "Not quite. Fix it or skip.";
   ansEl.select();
-  update(meRef(), { misses: increment(1) }).catch(() => {});
+  if (cur.kind === "practice") {
+    pr.misses++; pr.streak = 0;
+    if (!pr.wrongOnThis) { pr.missed.push({ html: pr.prob.html, ans: pr.prob.ans, given: ansEl.value.trim() }); pr.wrongOnThis = true; }
+  } else update(meRef(), { misses: increment(1) }).catch(() => {});
 }
 function submit() {
-  const p = currentProb(); if (!p) return;
+  const cur = current(); if (!cur) return;
   const v = ansEl.value.trim(); if (!v) return;
-  const j = judge(v, p);
-  if (j === "ok") onCorrect();
+  const j = judge(v, cur.prob);
+  if (j === "ok") onCorrect(cur);
   else if (j === "simplify") { $("#fb").textContent = "Right value. Now simplify it."; flash("bad"); }
-  else onWrong();
+  else onWrong(cur);
 }
 ansEl.addEventListener("input", () => {
   ansEl.value = ansEl.value.replace(/[^0-9\-\/−]/g, "");
-  const p = currentProb();
-  if (p && judge(ansEl.value, p) === "ok") onCorrect();
+  const cur = current();
+  if (cur && judge(ansEl.value, cur.prob) === "ok") onCorrect(cur);
 });
 ansEl.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
 keypad($("#kp"), k => {
-  if (!currentProb()) return;
+  if (!current()) return;
   if (k === "ok") return submit();
   if (k === "del") ansEl.value = ansEl.value.slice(0, -1); else ansEl.value += k;
   ansEl.dispatchEvent(new Event("input"));
 });
 $("#skipBtn").addEventListener("click", () => {
-  if (mode() !== "sprint" || !sp || !sp.prob) return;
-  $("#fb").innerHTML = "Answer was " + frq(sp.prob.ans);
-  update(meRef(), { misses: increment(1) }).catch(() => {});
-  sp.prob = sp.next(); showProb(sp.prob); focusAns();
+  const cur = current(); if (!cur || cur.kind === "round") return;
+  $("#fb").innerHTML = "Answer was " + frq(cur.prob.ans);
+  if (cur.kind === "practice") {
+    pr.misses++; pr.streak = 0;
+    if (!pr.wrongOnThis) pr.missed.push({ html: pr.prob.html, ans: pr.prob.ans, given: "skipped" });
+    nextPractice(true);
+  } else {
+    update(meRef(), { misses: increment(1) }).catch(() => {});
+    sp.prob = sp.next(); showProb(sp.prob);
+  }
+  focusAns();
 });
 $("#s-play").addEventListener("click", e => { if (!e.target.closest("button")) focusAns(); });
+
+/* ======================================================================
+   PRACTICE (anytime) + LEADERBOARD
+   ====================================================================== */
+const S = { cat: "mul", level: 2, dur: 60 };
+try { Object.assign(S, JSON.parse(store.get("msl.pcfg") || "{}")); } catch (e) {}
+let pr = null;                 // the practice run in progress
+let evRows = [], unsubEv = null, evFor = "";
+let myRows = [], unsubMine = null, mineFor = "";
+const syncers = [];
+
+function initPractice() {
+  $("#pcats").innerHTML = CATS.map(c => `<button type="button" class="cat" data-id="${c.id}"><b>${esc(c.name)}</b><span>${esc(c.sample)}</span></button>`).join("");
+  $("#pcats").addEventListener("click", e => { const b = e.target.closest(".cat"); if (b) setEvent({ cat: b.dataset.id }); });
+  $("#bCat").innerHTML = CATS.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  $("#bCat").addEventListener("change", e => setEvent({ cat: e.target.value }));
+  syncers.push(seg($("#plvl"), LEVELS, () => S.level, v => setEvent({ level: +v })));
+  syncers.push(seg($("#pdur"), DURS, () => S.dur, v => setEvent({ dur: +v })));
+  syncers.push(seg($("#bLvl"), LEVELS, () => S.level, v => setEvent({ level: +v })));
+  syncers.push(seg($("#bDur"), DURS, () => S.dur, v => setEvent({ dur: +v })));
+  setEvent({});
+  watchMine(store.get("msl.name") || "");
+}
+function setEvent(patch) {
+  Object.assign(S, patch);
+  store.set("msl.pcfg", JSON.stringify(S));
+  syncers.forEach(f => f());
+  document.querySelectorAll("#pcats .cat").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.id === S.cat)));
+  $("#bCat").value = S.cat;
+  const ev = evKey(S.cat, S.level, S.dur);
+  if (ev !== evFor) {
+    if (unsubEv) unsubEv();
+    evFor = ev; evRows = [];
+    unsubEv = watchEvent(ev, rows => { if (evFor === ev) { evRows = rows; renderBoards(); } });
+  }
+  renderBoards();
+}
+function watchMine(name) {
+  const key = name ? normKey(name) : "";
+  if (key === mineFor) return;
+  if (unsubMine) { unsubMine(); unsubMine = null; }
+  mineFor = key; myRows = [];
+  if (key) unsubMine = watchStudent(key, rows => { if (mineFor === key) { myRows = rows || []; renderBoards(); } });
+  renderBoards();
+}
+function renderBoards() {
+  const label = evLabel(S.cat, S.level, S.dur);
+  const empty = `No scores yet for ${label}. Finish a sprint to set the first record.`;
+  $("#pMiniTitle").textContent = label;
+  $("#pMini").innerHTML = boardTable(evRows, { limit: 10, meKey: mineFor, dates: false, emptyText: empty });
+  $("#bTitle").textContent = label;
+  $("#bFull").innerHTML = boardTable(evRows, { limit: 50, meKey: mineFor, emptyText: empty });
+
+  // your best in the selected event
+  const ev = evKey(S.cat, S.level, S.dur);
+  const mineHere = bestPerStudent(myRows.filter(x => x.event === ev))[0];
+  const list = evRows ? bestPerStudent(evRows) : [];
+  const pos = mineHere ? list.findIndex(x => x.key === mineFor) + 1 : 0;
+  $("#pMyBest").innerHTML = !mineFor ? "Type your name to track your record."
+    : mineHere ? `Your record: <b>${mineHere.score}</b>${pos ? ` · ${ordinal(pos)} of ${list.length}` : ""}`
+    : "You haven't played this event yet.";
+
+  // your records across events
+  if (!mineFor) { $("#myRecSub").textContent = "Type your name on the Practice tab to see your records."; $("#myRecs").innerHTML = ""; }
+  else {
+    const byEv = new Map();
+    for (const x of myRows) { const b = byEv.get(x.event); if (!b || x.score > b.score || (x.score === b.score && x.ts < b.ts)) byEv.set(x.event, { ...x, runs: (b ? b.runs : 0) + 1 }); else b.runs++; }
+    const recs = [...byEv.values()].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    $("#myRecSub").textContent = recs.length ? `${myRows.length} ${myRows.length === 1 ? "sprint" : "sprints"} played as ${myRows[0].name}` : `No sprints yet as “${$("#pname").value.trim()}”.`;
+    $("#myRecs").innerHTML = recs.length ? `<table class="board"><thead><tr><th>Event</th><th class="r">Record</th><th class="r">Runs</th><th class="r">Set on</th></tr></thead><tbody>${
+      recs.map(x => `<tr${x.event === ev ? ' class="me"' : ""}><td>${esc(evLabel(x.cat, x.level, x.dur))}</td><td class="r num">${x.score}</td><td class="r">${x.runs}</td><td class="r">${fmtDate(x.ts)}</td></tr>`).join("")
+    }</tbody></table>` : "";
+  }
+
+  // names for autocomplete
+  const names = new Map();
+  for (const x of evRows || []) if (!names.has(x.key)) names.set(x.key, x.name);
+  const opts = [...names.values()].map(n => `<option value="${esc(n)}"></option>`).join("");
+  if ($("#knownNames").innerHTML !== opts) $("#knownNames").innerHTML = opts;
+}
+
+function startPractice() {
+  const name = setName($("#pname").value);
+  if (!name) { $("#pnameErr").textContent = "Type your name so your score counts."; $("#pname").focus(); return; }
+  $("#pnameErr").textContent = "";
+  const run = pr = {
+    name, key: normKey(name), cat: S.cat, level: S.level, dur: S.dur,
+    next: problemStream(Math.floor(Math.random() * 2147483647), S.cat, S.level),
+    prob: null, score: 0, misses: 0, streak: 0, best: 0, missed: [], wrongOnThis: false, live: false
+  };
+  openPlay({ score: 0, practice: true });
+  $("#hudTime").textContent = run.dur;
+  ansEl.disabled = true;
+  const c = $("#count"); let n = 3; c.hidden = false;
+  const step = () => {
+    if (pr !== run) { c.hidden = true; return; }
+    if (n === 0) {
+      c.textContent = "Go!"; sfx.go();
+      setTimeout(() => {
+        c.hidden = true; if (pr !== run) return;
+        run.live = true; run.start = performance.now(); run.end = run.start + run.dur * 1000;
+        ansEl.disabled = false; nextPractice(); focusAns(); practiceLoop();
+      }, 420);
+      return;
+    }
+    c.textContent = n; sfx.tick(); n--; setTimeout(step, 650);
+  };
+  step();
+}
+function nextPractice(keepFeedback) {
+  pr.prob = pr.next(); pr.wrongOnThis = false; showProb(pr.prob);
+  if (!keepFeedback) $("#fb").textContent = "";
+}
+function practiceLoop() {
+  if (!pr || !pr.live) return;
+  const left = pr.end - performance.now();
+  if (left <= 0) { finishPractice(); return; }
+  drawTimer(left, pr.dur * 1000, 10000);
+  pr.raf = requestAnimationFrame(practiceLoop);
+}
+async function finishPractice() {
+  const run = pr; run.live = false; cancelAnimationFrame(run.raf); ansEl.disabled = true;
+  sfx.win();
+  const ev = evKey(run.cat, run.level, run.dur);
+  const prior = bestPerStudent(myRows.filter(x => x.event === ev))[0];
+  const rec = { name: run.name, key: run.key, event: ev, cat: run.cat, level: run.level, dur: run.dur,
+    score: run.score, misses: run.misses, streak: run.best, uid, source: "practice" };
+  showPracticeResult(run, rec, prior, null);
+  let status = "saved";
+  try { await saveScore(rec); } catch (e) { console.error(e); status = "failed"; }
+  if (pr === run) showPracticeResult(run, rec, prior, status);
+}
+function showPracticeResult(run, rec, prior, status) {
+  show("s-presult");
+  $("#prEvent").textContent = evLabel(run.cat, run.level, run.dur);
+  $("#prName").textContent = run.name;
+  $("#prScore").textContent = run.score;
+  const pace = run.score ? (run.dur / run.score).toFixed(1) + " s" : "—";
+  $("#prChips").innerHTML = [["Misses", run.misses], ["Accuracy", accuracy(rec)], ["Best streak", run.best], ["Per answer", pace]]
+    .map(([k, v]) => `<div class="statchip"><b>${v}</b><span>${k}</span></div>`).join("");
+  const others = bestPerStudent((evRows || []).filter(x => x.key !== rec.key));
+  const myBest = !prior || rec.score > prior.score ? rec : prior;
+  const list = bestPerStudent(others.concat([{ ...myBest, ts: myBest.ts || Date.now() }]));
+  const pos = list.findIndex(x => x.key === rec.key) + 1;
+  let news;
+  if (!prior) news = `Your first score in this event. You're <mark>${ordinal(pos)}</mark> of ${list.length}.`;
+  else if (rec.score > prior.score) news = `New record! Up from ${prior.score}. You're <mark>${ordinal(pos)}</mark> of ${list.length}.`;
+  else if (rec.score === prior.score) news = `You tied your record of ${prior.score}. You're <mark>${ordinal(pos)}</mark> of ${list.length}.`;
+  else news = `Your record is ${prior.score}. ${prior.score - rec.score} more to beat it. You're <mark>${ordinal(pos)}</mark> of ${list.length}.`;
+  $("#prNews").innerHTML = news;
+  const missed = run.missed.slice(-8);
+  $("#prMissedWrap").hidden = !missed.length;
+  $("#prMissed").innerHTML = missed.map(m => `<li><div class="q">${m.html} = ${frq(m.ans)}</div><small>${m.given === "skipped" ? "Skipped" : "You typed " + esc(m.given || "—")}</small></li>`).join("");
+  $("#prSaved").textContent = status === null ? "Saving…" : status === "saved" ? "Saved to the leaderboard." : "Couldn't save this score. Check the internet connection.";
+}
+$("#pStart").addEventListener("click", startPractice);
+$("#pname").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); startPractice(); } });
+$("#pQuit").addEventListener("click", () => { if (pr) { pr.live = false; cancelAnimationFrame(pr.raf); } pr = null; show("s-practice"); });
+$("#prAgain").addEventListener("click", startPractice);
+$("#prChange").addEventListener("click", () => { pr = null; show("s-practice"); });
+$("#prBoard").addEventListener("click", () => { pr = null; show("s-board"); });
