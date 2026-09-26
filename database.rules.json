@@ -1,0 +1,29 @@
+{
+  "rules": {
+    "rooms": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
+      "$code": {
+        ".read": "auth != null",
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid && root.child('rooms').child($code).child('status').exists() && root.child('rooms').child($code).child('status').val() != 'ended'",
+            ".validate": "!newData.exists() || (newData.child('name').isString() && newData.child('name').val().length >= 1 && newData.child('name').val().length <= 24 && newData.child('score').isNumber())"
+          }
+        },
+        "answers": {
+          "$round": {
+            "$uid": {
+              ".write": "auth != null && auth.uid == $uid && !data.exists() && root.child('rooms').child($code).child('status').val() == 'round' && root.child('rooms').child($code).child('round').child('key').val() == $round",
+              ".validate": "newData.child('points').isNumber() && newData.child('points').val() <= 1000 && newData.child('ms').isNumber()"
+            }
+          }
+        }
+      }
+    },
+    "history": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'"
+    }
+  }
+}

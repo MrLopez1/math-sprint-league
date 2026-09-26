@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Math Sprint League · Teacher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body class="host">
+<div class="wrap">
+  <header class="top">
+    <p class="brand">Math <span class="hl">Sprint</span> League</p>
+    <div class="who-tag">
+      <span id="whoEmail"></span>
+      <button class="ghost small" id="soundBtn" type="button" aria-pressed="true">Sound on</button>
+      <button class="ghost small" id="fsBtn" type="button">Full screen</button>
+      <button class="ghost small" id="signOutBtn" type="button" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <section id="v-setup" hidden class="narrow">
+    <div class="note bad">The site isn't connected to Firebase yet. Paste your Firebase settings into <b>js/config.js</b> (see README).</div>
+  </section>
+
+  <section id="v-loading"><p class="sub">Connecting…</p></section>
+
+  <section id="v-signin" hidden class="narrow">
+    <div class="panel stack">
+      <h1>Teacher sign-in</h1>
+      <p class="sub">Sign in with the Google account listed in your database rules to create games and see the history. Students don't sign in. They join at the main page with a code.</p>
+      <button class="go full" id="googleBtn" type="button">Sign in with Google</button>
+      <div class="err" id="signinErr" role="alert"></div>
+    </div>
+  </section>
+
+  <section id="v-denied" hidden class="narrow">
+    <div class="note bad stack" style="gap:10px">
+      <b>This Google account can't host games.</b>
+      <span>Signed in as <span id="deniedEmail"></span>. Put this email in the database rules (Firebase → Realtime Database → Rules), publish, then reload this page.</span>
+    </div>
+  </section>
+
+  <!-- HOME -->
+  <section id="v-home" hidden>
+    <nav class="tabs" id="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="t-new" aria-selected="true">New game</button>
+      <button type="button" role="tab" data-tab="t-history" aria-selected="false">History</button>
+    </nav>
+
+    <div id="t-new">
+      <div class="grid2">
+        <div class="panel stack">
+          <div>
+            <h2>Set up a game</h2>
+            <p class="sub">Students join from their phones with the code on the projector.</p>
+          </div>
+          <div><span class="label">Format</span><div class="seg" id="modeSeg"></div></div>
+          <div><span class="label">Event</span><div class="cats" id="cats"></div></div>
+          <div class="row">
+            <div><span class="label">Level</span><div class="seg" id="lvlSeg"></div></div>
+            <div id="durWrap"><span class="label">Time</span><div class="seg" id="durSeg"></div></div>
+            <div id="roundsWrap"><span class="label">Rounds</span><div class="seg" id="roundsSeg"></div></div>
+            <div id="secWrap"><span class="label">Seconds per round</span><div class="seg" id="secSeg"></div></div>
+          </div>
+          <div class="btns"><button class="go" id="createBtn" type="button">Create game</button><span class="err" id="createErr"></span></div>
+        </div>
+        <aside class="panel stack" style="gap:12px">
+          <h3>The two formats</h3>
+          <p style="margin:0"><b>Sprint race.</b> Everyone gets the same problems in the same order and answers as many as possible before time runs out. The projector shows a live race.</p>
+          <p style="margin:0"><b>Rounds.</b> One problem at a time, like Kahoot. Faster correct answers earn more points (1000 down to 500). After each round the projector shows the answer, the fastest students and the standings.</p>
+          <p class="sub" style="margin:0">Every finished game is saved in History with each student's score.</p>
+        </aside>
+      </div>
+    </div>
+
+    <div id="t-history" hidden>
+      <div class="grid2">
+        <div class="panel">
+          <div class="btns" style="justify-content:space-between">
+            <h2>Games</h2>
+            <button class="ghost small" id="csvBtn" type="button">Download CSV</button>
+          </div>
+          <div id="gamesList" style="margin-top:8px"></div>
+        </div>
+        <div class="panel">
+          <h2>Students</h2>
+          <p class="sub">Across all saved games</p>
+          <div class="tbl" id="studentsTbl" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="v-lobby" hidden>
+    <div class="stack">
+      <div class="panel codebox">
+        <div class="stack" style="gap:6px">
+          <span class="label">Join at</span>
+          <div class="joinurl" id="joinUrl"></div>
+          <span class="label" style="margin-top:10px">Game code</span>
+          <div class="joincode" id="joinCode"></div>
+          <span class="pill" id="lobbyEvent" style="align-self:flex-start;margin-top:6px"></span>
+        </div>
+        <div id="qr" aria-label="QR code to join"></div>
+      </div>
+      <div class="panel stack" style="gap:14px">
+        <div class="btns" style="justify-content:space-between">
+          <h2 id="lobbyCount">Waiting for players…</h2>
+          <div class="btns">
+            <button class="ghost danger" id="cancelBtn" type="button">Cancel game</button>
+            <button class="go" id="startBtn" type="button" disabled>Start</button>
+          </div>
+        </div>
+        <div class="chips" id="lobbyChips"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SPRINT LIVE -->
+  <section id="v-live" hidden>
+    <div class="stack" id="liveInner">
+      <div class="hud">
+        <div><h2 id="liveEvent"></h2><p class="sub" id="liveCount"></p></div>
+        <div class="bigtimer timer" id="liveTime"></div>
+      </div>
+      <div class="track"><div class="bar" id="liveBar"></div></div>
+      <div class="panel" style="position:relative;min-height:240px">
+        <div class="bars" id="liveBars"></div>
+        <div class="count" id="liveCountdown" hidden></div>
+      </div>
+      <div class="btns"><button class="ghost" id="endNowBtn" type="button">End now</button></div>
+    </div>
+  </section>
+
+  <!-- ROUND -->
+  <section id="v-round" hidden>
+    <div class="stack" id="roundInner">
+      <div class="hud">
+        <div><h2 id="roundTitle"></h2><p class="sub" id="roundEvent"></p></div>
+        <div class="stats">
+          <div class="stat"><b id="roundAnswered">0</b><span>Answered</span></div>
+          <div class="stat"><b class="timer" id="roundTime"></b><span>Seconds</span></div>
+        </div>
+      </div>
+      <div class="track"><div class="bar" id="roundBar"></div></div>
+      <div class="card">
+        <div class="prob" id="roundProb"></div>
+        <div class="count" id="roundCountdown" hidden></div>
+      </div>
+      <div class="chips" id="roundChips"></div>
+      <div class="btns"><button class="ghost" id="revealNowBtn" type="button">Show answer now</button></div>
+    </div>
+  </section>
+
+  <!-- REVEAL -->
+  <section id="v-reveal" hidden>
+    <div class="stack">
+      <div class="hud">
+        <div><h2 id="revTitle"></h2><p class="sub" id="revSub"></p></div>
+        <button class="go" id="nextBtn" type="button">Next round</button>
+      </div>
+      <div class="card"><div class="prob" id="revProb"></div></div>
+      <div class="grid2">
+        <div class="panel"><h3>Standings</h3><div class="bars" id="revBars" style="margin-top:12px"></div></div>
+        <div class="panel"><h3>Fastest this round</h3><div class="tbl" id="revFast" style="margin-top:8px"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL -->
+  <section id="v-final" hidden>
+    <div class="stack">
+      <div class="hud">
+        <div><h1>Final results</h1><p class="sub" id="finEvent"></p></div>
+        <div class="btns">
+          <button class="ghost" id="newGameBtn" type="button">New game</button>
+          <button class="go" id="againBtn" type="button">Play again</button>
+        </div>
+      </div>
+      <div class="podium" id="podium"></div>
+      <div class="panel"><div class="tbl" id="finTable"></div><p class="sub" id="finSaved"></p></div>
+    </div>
+  </section>
+</div>
+<script type="module" src="js/host.js"></script>
+</body>
+</html>
