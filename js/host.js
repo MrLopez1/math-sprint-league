@@ -6,23 +6,26 @@ import {
 import { CATS, LEVELS, catName, lvlName, roundProblem, frq } from "./problems.js";
 import { $, esc, seg, showOnly, sfx, sound, ordinal } from "./ui.js";
 import { DURS, evKey, evLabel, watchAll, saveScore, deleteScore, boardTable, fmtDate } from "./board.js";
+import { battleInit, battleStart, battleRender, battleTick, battleDetach, battleReset, battleCleanup } from "./battle-host.js";
 
-const VIEWS = ["v-setup", "v-loading", "v-signin", "v-denied", "v-home", "v-lobby", "v-live", "v-round", "v-reveal", "v-final"];
+const VIEWS = ["v-setup", "v-loading", "v-signin", "v-denied", "v-home", "v-lobby", "v-live", "v-round", "v-reveal", "v-final", "v-battle"];
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} }
 };
-const cfg = { mode: "sprint", cat: "mul", level: 2, dur: 60, rounds: 10, roundSec: 20 };
+const cfg = { mode: "sprint", cat: "mul", level: 2, dur: 60, rounds: 10, roundSec: 20, shootSec: 60 };
 try { Object.assign(cfg, JSON.parse(store.get("msl.cfg") || "{}")); } catch (e) {}
 
 let user = null, code = null, room = null, unsub = null, tickT = null, viewKey = "";
 let busy = false;           // guards finish / reveal so they run once
 let qrFor = "";
 const newSeed = () => Math.floor(Math.random() * 2147483647);
-const modeName = m => (m === "sprint" ? "Sprint race" : "Rounds");
-const settingsLabel = s => `${catName(s.cat)} · ${lvlName(s.level)} · ${s.mode === "sprint" ? `${s.dur} s sprint` : `${s.rounds} rounds of ${s.roundSec} s`}`;
+const modeName = m => (m === "sprint" ? "Sprint race" : m === "battle" ? "Coordinate Battleship" : "Rounds");
+const settingsLabel = s => s.mode === "battle" ? `Coordinate Battleship · ${s.shootSec || 60} s to shoot` : `${catName(s.cat)} · ${lvlName(s.level)} · ${s.mode === "sprint" ? `${s.dur} s sprint` : `${s.rounds} rounds of ${s.roundSec} s`}`;
 const joinBase = () => new URL("./", location.href).href;
+
+battleInit({ newGame: () => { store.del("msl.host"); goHome(); } });
 
 /* ---------- auth ---------- */
 if (!configured) showOnly(VIEWS, "v-setup");
@@ -63,7 +66,7 @@ async function cleanupRooms() {
   try {
     const s = await get(r("rooms"));
     const all = s.val() || {}, cutoff = now() - 12 * 3600 * 1000;
-    for (const [c, rm] of Object.entries(all)) if (!rm || (rm.createdAt || 0) < cutoff) remove(r("rooms/" + c)).catch(() => {});
+    for (const [c, rm] of Object.entries(all)) if (!rm || (rm.createdAt || 0) < cutoff) { remove(r("rooms/" + c)).catch(() => {}); battleCleanup(c); }
   } catch (e) {}
 }
 
@@ -83,11 +86,17 @@ $("#tabs").addEventListener("click", e => { const b = e.target.closest("button")
 
 const saveCfg = () => store.set("msl.cfg", JSON.stringify(cfg));
 function syncModeFields() {
+  const battle = cfg.mode === "battle";
   $("#durWrap").hidden = cfg.mode !== "sprint";
-  $("#roundsWrap").hidden = cfg.mode === "sprint";
-  $("#secWrap").hidden = cfg.mode === "sprint";
+  $("#roundsWrap").hidden = cfg.mode !== "rounds";
+  $("#secWrap").hidden = cfg.mode !== "rounds";
+  $("#eventWrap").hidden = battle;
+  $("#lvlWrap").hidden = battle;
+  $("#shootWrap").hidden = !battle;
+  $("#battleNote").hidden = !battle;
 }
-seg($("#modeSeg"), [{ v: "sprint", label: "Sprint race" }, { v: "rounds", label: "Rounds" }], () => cfg.mode, v => { cfg.mode = v; syncModeFields(); saveCfg(); });
+seg($("#modeSeg"), [{ v: "sprint", label: "Sprint race" }, { v: "rounds", label: "Rounds" }, { v: "battle", label: "Coordinate Battleship" }], () => cfg.mode, v => { cfg.mode = v; syncModeFields(); saveCfg(); });
+seg($("#shootSeg"), [30, 60, 90].map(v => ({ v, label: v + " s" })), () => cfg.shootSec, v => { cfg.shootSec = +v; saveCfg(); });
 seg($("#lvlSeg"), LEVELS, () => cfg.level, v => { cfg.level = +v; saveCfg(); });
 seg($("#durSeg"), [30, 60, 90, 120].map(v => ({ v, label: v === 120 ? "2 min" : v + " s" })), () => cfg.dur, v => { cfg.dur = +v; saveCfg(); });
 seg($("#roundsSeg"), [5, 10, 15, 20].map(v => ({ v, label: String(v) })), () => cfg.rounds, v => { cfg.rounds = +v; saveCfg(); });
@@ -107,7 +116,9 @@ $("#createBtn").addEventListener("click", async () => {
     }
     const settings = cfg.mode === "sprint"
       ? { mode: "sprint", cat: cfg.cat, level: cfg.level, dur: cfg.dur }
-      : { mode: "rounds", cat: cfg.cat, level: cfg.level, rounds: cfg.rounds, roundSec: cfg.roundSec };
+      : cfg.mode === "battle"
+        ? { mode: "battle", shootSec: cfg.shootSec }
+        : { mode: "rounds", cat: cfg.cat, level: cfg.level, rounds: cfg.rounds, roundSec: cfg.roundSec };
     await set(r("rooms/" + c), { hostUid: user.uid, createdAt: serverTimestamp(), status: "lobby", seed: newSeed(), settings });
     store.set("msl.host", c);
     sfx.tick();
@@ -131,6 +142,7 @@ function enterRoom(c) {
   tickT = setInterval(tick, 200);
 }
 function leaveRoom() {
+  battleDetach();
   if (unsub) { unsub(); unsub = null; }
   if (tickT) { clearInterval(tickT); tickT = null; }
   code = null; room = null; viewKey = ""; busy = false;
@@ -143,6 +155,7 @@ const online = () => playersArr().filter(p => p.online !== false);
 function tick() {
   if (!room) return;
   const t = now(), s = room.settings;
+  if (s.mode === "battle" && room.status !== "lobby") { battleTick(room, code); render(); return; }
   if (room.status === "playing" && s.mode === "sprint" && t > room.endAt + 1500) finish();
   if (room.status === "round" && room.round) {
     const R = room.round, ans = (room.answers && room.answers[R.key]) || {};
@@ -162,6 +175,9 @@ function render() {
   if (room.status === "lobby") {
     if (changed) showOnly(VIEWS, "v-lobby");
     renderLobby();
+  } else if (s.mode === "battle") {
+    if (changed) showOnly(VIEWS, "v-battle");
+    battleRender(room, code, $("#battleRoot"));
   } else if (room.status === "playing") {
     if (changed) { showOnly(VIEWS, "v-live"); $("#liveEvent").textContent = settingsLabel(s); }
     const before = t < room.startAt, left = Math.max(0, room.endAt - t);
@@ -225,7 +241,9 @@ function renderLobby() {
   }
   const list = playersArr().sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
   $("#lobbyCount").textContent = list.length ? `${list.length} ${list.length === 1 ? "student" : "students"} joined` : "Waiting for students…";
-  $("#startBtn").disabled = list.length === 0;
+  const battle = s.mode === "battle";
+  $("#startBtn").disabled = battle ? (list.length < 2 || list.length > 4) : list.length === 0;
+  $("#lobbyHint").textContent = battle ? (list.length > 4 ? "Coordinate Battleship takes 2 to 4 players. Remove the extra students to start." : list.length < 2 ? "Coordinate Battleship needs at least 2 players." : "Players get quadrants I, II, III and IV in the order they joined.") : "";
   const html = list.map(p => `<span class="chip${p.online === false ? " off" : ""}" data-id="${esc(p.id)}">${esc(p.name)}<button type="button" aria-label="Remove ${esc(p.name)}" title="Remove">×</button></span>`).join("");
   const box = $("#lobbyChips");
   if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
@@ -275,6 +293,7 @@ function renderFinal() {
 async function start() {
   if (!room || room.status !== "lobby" || !playersArr().length) return;
   const s = room.settings;
+  if (s.mode === "battle") { const n = playersArr().length; if (n >= 2 && n <= 4) await battleStart(code, room); return; }
   if (s.mode === "sprint") {
     const st = now() + 4000;
     await update(r("rooms/" + code), { status: "playing", startAt: st, endAt: st + s.dur * 1000 });
@@ -323,6 +342,7 @@ async function finish() {
 }
 async function playAgain() {
   if (!room) return;
+  if (room.settings.mode === "battle") { store.set("msl.host", code); return battleReset(code, room); }
   const upd = { status: "lobby", seed: newSeed(), round: null, answers: null, startAt: null, endAt: null, historyId: null };
   for (const id of Object.keys(room.players || {})) {
     upd[`players/${id}/score`] = 0; upd[`players/${id}/correct`] = 0; upd[`players/${id}/misses`] = 0;
@@ -397,7 +417,7 @@ $("#csvBtn").addEventListener("click", () => {
   const rows = [["date", "format", "event", "level", "rank", "student", "score", "correct", "misses"]];
   Object.values(historyCache).sort((a, b) => (a.endedAt || 0) - (b.endedAt || 0)).forEach(g => {
     const s = g.settings || {};
-    (g.results || []).forEach(p => rows.push([new Date(g.endedAt).toISOString().slice(0, 16).replace("T", " "), modeName(s.mode), catName(s.cat), lvlName(s.level), p.rank, p.name, p.score, p.correct, p.misses]));
+    (g.results || []).forEach(p => rows.push([new Date(g.endedAt).toISOString().slice(0, 16).replace("T", " "), modeName(s.mode), s.mode === "battle" ? "" : catName(s.cat), s.mode === "battle" ? "" : lvlName(s.level), p.rank, p.name, p.score, p.correct, p.misses]));
   });
   const blob = new Blob(["﻿" + rows.map(r => r.map(q).join(",")).join("\r\n")], { type: "text/csv" });
   const a = document.createElement("a");

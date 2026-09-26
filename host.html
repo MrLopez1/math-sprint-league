@@ -60,18 +60,21 @@
             <p class="sub">Students join from their phones with the code on the projector.</p>
           </div>
           <div><span class="label">Format</span><div class="seg" id="modeSeg"></div></div>
-          <div><span class="label">Event</span><div class="cats" id="cats"></div></div>
+          <div id="eventWrap"><span class="label">Event</span><div class="cats" id="cats"></div></div>
+          <div class="note" id="battleNote" hidden><b>Coordinate Battleship</b> is for 2 to 4 players. Each one hides 5 ships in their own quadrant. You give a problem out loud or on the board, and students send written answers from their phones. You mark them right or wrong: the fastest correct answer gets 4 shots, other correct answers get 3. Students fire by typing coordinates. Three special shots are hidden on the axes.</div>
           <div class="row">
-            <div><span class="label">Level</span><div class="seg" id="lvlSeg"></div></div>
+            <div id="lvlWrap"><span class="label">Level</span><div class="seg" id="lvlSeg"></div></div>
             <div id="durWrap"><span class="label">Time</span><div class="seg" id="durSeg"></div></div>
             <div id="roundsWrap"><span class="label">Rounds</span><div class="seg" id="roundsSeg"></div></div>
             <div id="secWrap"><span class="label">Seconds per round</span><div class="seg" id="secSeg"></div></div>
+            <div id="shootWrap"><span class="label">Time to shoot</span><div class="seg" id="shootSeg"></div></div>
           </div>
           <div class="btns"><button class="go" id="createBtn" type="button">Create game</button><span class="err" id="createErr"></span></div>
         </div>
         <aside class="panel stack" style="gap:12px">
-          <h3>The two formats</h3>
+          <h3>The three formats</h3>
           <p style="margin:0"><b>Sprint race.</b> Everyone gets the same problems in the same order and answers as many as possible before time runs out. The projector shows a live race.</p>
+          <p style="margin:0"><b>Coordinate Battleship.</b> 2 to 4 players hide ships in their own quadrant of the Cartesian plane. Right answers to your problems earn shots, which students fire by typing coordinates.</p>
           <p style="margin:0"><b>Rounds.</b> One problem at a time, like Kahoot. Faster correct answers earn more points (1000 down to 500). After each round the projector shows the answer, the fastest students and the standings.</p>
           <p class="sub" style="margin:0">Every finished game is saved in History with each student's score.</p>
         </aside>
@@ -140,6 +143,7 @@
             <button class="go" id="startBtn" type="button" disabled>Start</button>
           </div>
         </div>
+        <p class="sub" id="lobbyHint"></p>
         <div class="chips" id="lobbyChips"></div>
       </div>
     </div>
@@ -195,6 +199,9 @@
       </div>
     </div>
   </section>
+
+  <!-- COORDINATE BATTLESHIP -->
+  <section id="v-battle" hidden><div id="battleRoot"></div></section>
 
   <!-- FINAL -->
   <section id="v-final" hidden>

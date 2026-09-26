@@ -6,8 +6,9 @@ import {
 import { CATS, LEVELS, problemStream, roundProblem, judge, frq, catName, lvlName, makeRng } from "./problems.js";
 import { $, esc, normKey, coarse, keypad, seg, showOnly, sfx, rankOf, ordinal } from "./ui.js";
 import { DURS, evKey, evLabel, watchEvent, watchStudent, saveScore, bestPerStudent, boardTable, accuracy, fmtDate } from "./board.js";
+import { battlePlayerRender, battlePlayerDetach } from "./battle-player.js";
 
-const SCREENS = ["s-setup", "s-loading", "s-join", "s-practice", "s-board", "s-lobby", "s-play", "s-presult", "s-msg"];
+const SCREENS = ["s-setup", "s-loading", "s-join", "s-practice", "s-board", "s-lobby", "s-play", "s-presult", "s-msg", "s-battle"];
 const TABS = ["s-join", "s-practice", "s-board"];
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -111,6 +112,11 @@ $("#joinForm").addEventListener("submit", async e => {
     if (!s.exists()) { err.textContent = "No game with that code. Check the big screen."; return; }
     const rm = s.val();
     if (rm.status === "ended") { err.textContent = "That game has ended. Ask for the new code."; return; }
+    const already = !!(rm.players || {})[uid];
+    if (rm.settings && rm.settings.mode === "battle" && !already) {
+      if (rm.status !== "lobby") { err.textContent = "This battle already started. Wait for the next game."; return; }
+      if (Object.keys(rm.players || {}).length >= 4) { err.textContent = "This battle is full (4 players)."; return; }
+    }
     const key = normKey(name);
     const taken = Object.entries(rm.players || {}).some(([id, p]) => id !== uid && p && p.key === key);
     if (taken) { err.textContent = "Someone already joined with that name. Add your last initial."; return; }
@@ -145,6 +151,7 @@ function enter(c) {
     if (!room) { store.del("msl.code"); showJoin("Your teacher closed that game."); return; }
     me = room.players ? room.players[uid] : null;
     if (!me) { store.del("msl.code"); showJoin("You're no longer in that game. You can join again."); return; }
+    if (room.settings && room.settings.mode === "battle" && room.status === "ended" && !(room.bstate && room.bstate.players && room.bstate.players[uid])) { store.del("msl.code"); }
     $("#meTag").textContent = `${me.name} · game ${c}`;
     render();
   }, () => showJoin("Lost the connection to the game. Join again."));
@@ -152,6 +159,7 @@ function enter(c) {
 }
 
 function leaveRoom() {
+  battlePlayerDetach();
   if (unsubRoom) { unsubRoom(); unsubRoom = null; }
   if (unsubConn) { unsubConn(); unsubConn = null; }
   if (tickT) { clearInterval(tickT); tickT = null; }
@@ -182,6 +190,7 @@ function phase() {
     !!(room.answers && room.answers[R.key] && room.answers[R.key][uid]);
   if (room.status === "round") {
     if (answered) return "answered";
+    if (rd && rd.idx === R.index && rd.seed === room.seed && rd.wrong) return "rwrong";
     if (t < R.startAt) return "rcount";
     if (t < R.endAt) return "rplay";
     return "rtimeout";
@@ -190,7 +199,7 @@ function phase() {
   return "lobby";
 }
 
-const roomEventLabel = () => { const s = room.settings || {}; return `${catName(s.cat)} · ${lvlName(s.level)}`; };
+const roomEventLabel = () => { const s = room.settings || {}; return s.mode === "battle" ? "Coordinate Battleship" : `${catName(s.cat)} · ${lvlName(s.level)}`; };
 
 function render() {
   if (!room || !me) return;
@@ -201,10 +210,15 @@ function render() {
   const players = room.players || {};
   const n = Object.keys(players).length;
 
+  if (s.mode === "battle" && room.status !== "lobby") {
+    if ($("#s-battle").hidden) show("s-battle");
+    battlePlayerRender(room, code, uid, $("#battleRoot"));
+    return;
+  }
   if (p === "lobby") {
-    if (changed) {
+    if (changed || $("#s-lobby").hidden) {
       show("s-lobby");
-      $("#lobbyEvent").textContent = `${roomEventLabel()} · ${s.mode === "sprint" ? "Sprint race" : "Rounds"}`;
+      $("#lobbyEvent").textContent = s.mode === "battle" ? "Coordinate Battleship · 2 to 4 players" : `${roomEventLabel()} · ${s.mode === "sprint" ? "Sprint race" : "Rounds"}`;
       $("#lobbyName").textContent = me.name;
     }
     $("#lobbyCount").textContent = n === 1 ? "1 player has joined" : `${n} players have joined`;
@@ -260,6 +274,9 @@ function render() {
       showMsg({ changed, pill: "Correct!", pillCls: "good", title: "Nice work", big: "+" + pts, detail: "Waiting for the others…" });
       break;
     }
+    case "rwrong":
+      showMsg({ changed, pill: "Not quite", pillCls: "bad", title: "One try per round", detail: "Waiting for the answer… Look at the big screen." });
+      break;
     case "rtimeout":
       showMsg({ changed, pill: "Time's up", pillCls: "bad", title: "Waiting for the answer…", detail: "Look at the big screen." });
       break;
@@ -331,13 +348,14 @@ function current() {
   if (pr && pr.live) return { kind: "practice", prob: pr.prob };
   const m = liveMode();
   if (code && m === "sprint" && sp && sp.prob) return { kind: "sprint", prob: sp.prob };
-  if (code && m === "rplay" && rd && !rd.answered) return { kind: "round", prob: rd.prob };
+  if (code && m === "rplay" && rd && !rd.answered && !rd.wrong) return { kind: "round", prob: rd.prob };
   return null;
 }
 const meRef = () => r(`rooms/${code}/players/${uid}`);
 
+function feedback(text, ok) { const f = $("#fb"); f.innerHTML = text; f.classList.toggle("okmsg", !!ok); }
 function onCorrect(cur) {
-  flash("ok"); sfx.ok(); $("#fb").textContent = "";
+  flash("ok"); sfx.ok(); feedback("✓ Correct", true);
   if (cur.kind === "practice") {
     pr.score++; pr.streak++; pr.best = Math.max(pr.best, pr.streak);
     $("#hudLeft").textContent = pr.score;
@@ -357,27 +375,37 @@ function onCorrect(cur) {
     render();
   }
 }
-function onWrong(cur) {
+// A wrong answer never gets a second try on the same problem, so guessing doesn't pay.
+function onWrong(cur, simplify) {
   flash("bad"); sfx.bad();
-  $("#fb").textContent = cur.kind === "round" ? "Not quite. Try again." : "Not quite. Fix it or skip.";
-  ansEl.select();
+  const given = ansEl.value.trim();
+  const why = simplify ? "Not in simplest form." : "Not quite.";
+  if (cur.kind === "round") {
+    rd.wrong = true;
+    update(meRef(), { misses: increment(1) }).catch(() => {});
+    render();
+    return;
+  }
+  feedback(`✗ ${why} It was ${frq(cur.prob.ans)}`);
   if (cur.kind === "practice") {
     pr.misses++; pr.streak = 0;
-    if (!pr.wrongOnThis) { pr.missed.push({ html: pr.prob.html, ans: pr.prob.ans, given: ansEl.value.trim() }); pr.wrongOnThis = true; }
-  } else update(meRef(), { misses: increment(1) }).catch(() => {});
+    pr.missed.push({ html: pr.prob.html, ans: pr.prob.ans, given });
+    nextPractice(true);
+  } else {
+    update(meRef(), { misses: increment(1) }).catch(() => {});
+    sp.prob = sp.next(); showProb(sp.prob);
+  }
 }
+// Answers are checked only when the student sends them (Enter, or Enter on the on-screen keypad).
 function submit() {
   const cur = current(); if (!cur) return;
   const v = ansEl.value.trim(); if (!v) return;
   const j = judge(v, cur.prob);
   if (j === "ok") onCorrect(cur);
-  else if (j === "simplify") { $("#fb").textContent = "Right value. Now simplify it."; flash("bad"); }
-  else onWrong(cur);
+  else onWrong(cur, j === "simplify");
 }
 ansEl.addEventListener("input", () => {
   ansEl.value = ansEl.value.replace(/[^0-9\-\/−]/g, "");
-  const cur = current();
-  if (cur && judge(ansEl.value, cur.prob) === "ok") onCorrect(cur);
 });
 ansEl.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
 keypad($("#kp"), k => {
@@ -388,10 +416,10 @@ keypad($("#kp"), k => {
 });
 $("#skipBtn").addEventListener("click", () => {
   const cur = current(); if (!cur || cur.kind === "round") return;
-  $("#fb").innerHTML = "Answer was " + frq(cur.prob.ans);
+  feedback("Skipped. It was " + frq(cur.prob.ans));
   if (cur.kind === "practice") {
     pr.misses++; pr.streak = 0;
-    if (!pr.wrongOnThis) pr.missed.push({ html: pr.prob.html, ans: pr.prob.ans, given: "skipped" });
+    pr.missed.push({ html: pr.prob.html, ans: pr.prob.ans, given: "skipped" });
     nextPractice(true);
   } else {
     update(meRef(), { misses: increment(1) }).catch(() => {});

@@ -1,8 +1,8 @@
 {
   "rules": {
     "rooms": {
-      ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
-      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
       "$code": {
         ".read": "auth != null",
         "players": {
@@ -18,21 +18,60 @@
               ".validate": "newData.child('points').isNumber() && newData.child('points').val() <= 1000 && newData.child('ms').isNumber()"
             }
           }
+        },
+        "req": {
+          "$uid": {
+            "$id": {
+              ".write": "auth != null && auth.uid == $uid && !data.exists() && root.child('rooms').child($code).child('bstate').child('phase').val() == 'shoot' && root.child('rooms').child($code).child('bstate').child('players').child($uid).exists()",
+              ".validate": "newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('kind').isString() && newData.child('kind').val().length <= 2"
+            }
+          }
         }
       }
     },
     "history": {
-      ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
-      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'"
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')"
     },
     "scores": {
       ".read": "auth != null",
-      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'TEACHER_EMAIL@gmail.com'",
-      ".indexOn": ["event", "key"],
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      ".indexOn": [
+        "event",
+        "key"
+      ],
       "$id": {
         ".write": "auth != null && !data.exists() && newData.child('uid').val() == auth.uid",
         ".validate": "newData.hasChildren(['name', 'key', 'event', 'cat', 'level', 'dur', 'score', 'misses', 'uid', 'ts']) && newData.child('name').isString() && newData.child('name').val().length >= 1 && newData.child('name').val().length <= 24 && newData.child('key').isString() && newData.child('key').val().length <= 24 && newData.child('event').isString() && newData.child('event').val().length <= 20 && newData.child('dur').isNumber() && newData.child('dur').val() >= 30 && newData.child('dur').val() <= 120 && newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('score').val() <= newData.child('dur').val() * 3 && newData.child('misses').isNumber() && newData.child('ts').isNumber() && newData.child('ts').val() <= now"
       }
+    },
+    "bships": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      "$code": {
+        "$uid": {
+          ".read": "auth != null && auth.uid == $uid",
+          ".write": "auth != null && auth.uid == $uid && root.child('rooms').child($code).child('bstate').child('phase').val() == 'place' && root.child('rooms').child($code).child('bstate').child('players').child($uid).exists()",
+          ".validate": "newData.hasChildren(['car', 'bat', 'cru', 'sub', 'des']) && newData.child('car').isString() && newData.child('car').val().length <= 60 && newData.child('bat').isString() && newData.child('bat').val().length <= 60 && newData.child('cru').isString() && newData.child('cru').val().length <= 60 && newData.child('sub').isString() && newData.child('sub').val().length <= 60 && newData.child('des').isString() && newData.child('des').val().length <= 60"
+        }
+      }
+    },
+    "banswers": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      "$code": {
+        "$round": {
+          "$uid": {
+            ".read": "auth != null && auth.uid == $uid",
+            ".write": "auth != null && auth.uid == $uid && !data.exists() && root.child('rooms').child($code).child('bstate').child('phase').val() == 'answer' && root.child('rooms').child($code).child('bstate').child('roundKey').val() == $round && root.child('rooms').child($code).child('bstate').child('players').child($uid).exists()",
+            ".validate": "newData.child('text').isString() && newData.child('text').val().length >= 1 && newData.child('text').val().length <= 200 && newData.child('t').val() == now"
+          }
+        }
+      }
+    },
+    "bsecret": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'nahum@rowhn.com' || auth.token.email == 'davidt@rowhn.com')"
     }
   }
 }

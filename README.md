@@ -17,7 +17,18 @@ On the teacher page, the **Leaderboard** tab shows the same boards and the lates
 
 ## Live game formats
 - **Sprint race:** everyone gets the same problems in the same order for 30 s to 2 min. The projector shows a live race. The results also go on the leaderboard.
-- **Rounds:** one problem at a time. Faster correct answers earn more points (1000 down to 500). After each round the projector shows the answer, the fastest students and the standings.
+- **Rounds:** one problem at a time, one try each. Faster correct answers earn more points (1000 down to 500). After each round the projector shows the answer, the fastest students and the standings.
+- **Coordinate Battleship (2 to 4 players):** each player hides 5 ships (Carrier 5, Battleship 4, Cruiser 3, Submarine 3, Destroyer 2) in their own quadrant of a Cartesian plane that runs from −10 to 10 on both axes. Ships can't touch an axis. Each round:
+  1. You give a problem out loud or on the board, choose the time and start the timer.
+  2. Students write their answer on their phones with math buttons (fractions, √, exponents, sin/cos/log…) and send it.
+  3. You mark each answer right or wrong. The fastest correct answer gets 4 shots, other correct answers 3, and wrong or no answer 0.
+  4. Students have 60 seconds (you can choose 30–90) to fire by typing coordinates. A typo can hit their own ship. Every shot appears on the projector as a hit or a miss, and sunk ships are revealed.
+  5. Three special shots are hidden on the axes: a horizontal line of 4 on the x-axis, a vertical line of 4 on the y-axis, and a 3 × 3 blast on either axis. The first student to shoot that point keeps it, and using one takes one of their shots.
+  6. A player whose 5 ships are all sunk is out, and the last fleet afloat wins. If you end the game early, the most ship points left wins.
+
+  Your screen settles every shot, so students can't see anyone else's ships or answers, even with browser tricks. Keep the teacher page open during the battle.
+
+**Answers are checked only when sent.** In Sprint race and Practice, a wrong answer counts as a miss, shows the right answer, and moves on to the next problem. In Rounds, each student gets one try. Guessing random numbers until one works doesn't pay.
 
 Events: addition, subtraction, multiplication, division, integers, order of operations, squares & roots, percentages, fractions, solve for x, and mixed. Each event has 3 levels: Warm-up, Contest and Olympiad.
 
@@ -42,7 +53,7 @@ Every finished live game is saved in **Live game history** on the teacher page. 
 ### 3. Firebase: database and rules
 1. **Build → Realtime Database → Create database**. Pick the United States location and start in **locked mode**.
 2. Open the **Rules** tab. Delete what's there and paste the whole content of `database.rules.json`.
-3. Replace `TEACHER_EMAIL@gmail.com` with the Google email you'll sign in with. It appears **5 times**, so use find and replace.
+3. Replace `TEACHER_EMAIL@gmail.com` with the Google email you'll sign in with. It appears **11 times**, so use find and replace.
    To let another teacher host too, change each check to allow both emails:
    `(auth.token.email == 'you@gmail.com' || auth.token.email == 'other@gmail.com')`
 4. Click **Publish**.
@@ -88,5 +99,6 @@ The free Firebase plan (Spark) allows about 100 people connected at the same tim
 - `js/problems.js`: problem generators (add or adjust events here)
 - `js/player.js`, `js/host.js`: student and teacher pages
 - `js/board.js`: leaderboard and records
+- `js/battle-core.js`, `js/battle-host.js`, `js/battle-player.js`: Coordinate Battleship
 - `js/fb.js`, `js/config.js`: Firebase connection
 - `database.rules.json`: security rules to paste into Firebase
